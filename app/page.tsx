@@ -153,7 +153,7 @@ export default function Home() {
     try { await updateDoc(doc(db, "produtos", produtoId), { unidades: unidadesAtualizadas }); } catch (error) { console.error(error); }
   };
 
-  // EXCLUSÃO COM INTEGRAÇÃO E POP-UP
+  // EXCLUSÃO COM INTEGRAÇÃO E POP-UP (CORRIGIDA PARA TYPESCRIPT / VERCEL)
   const excluirUnidade = async (produtoId: string, unidadeId: string, nomeProduto: string, custoUnidade: number) => {
     const msg = `CONFERÊNCIA DE EXCLUSÃO DE UNIDADE:\n\nCusto desta unidade: R$ ${custoUnidade.toFixed(2)}\n\nAo excluir, este valor será subtraído da próxima parcela atrelada a este produto no Fluxo de Caixa para manter seu saldo correto.\n\nConfirma a exclusão?`;
     if(!window.confirm(msg)) return;
@@ -161,9 +161,13 @@ export default function Home() {
     const produto = itens.find(i => i.id === produtoId);
     const unidadesRestantes = produto.unidades.filter((u: any) => u.id !== unidadeId);
 
-    // Busca transacoes do Financeiro
+    // Busca transacoes do Financeiro com tipagem "any" para a Vercel não reclamar
     const qDocs = await getDocs(collection(db, "transacoes"));
-    const trsRelacionadas = qDocs.docs.filter(d => d.data().produtoId === produtoId || (!d.data().produtoId && d.data().descricao.includes(nomeProduto))).map(d => ({id: d.id, ...d.data()}));
+    const trsRelacionadas: any[] = qDocs.docs.filter(d => {
+      const dataDoc = d.data() as any;
+      return dataDoc.produtoId === produtoId || (!dataDoc.produtoId && dataDoc.descricao.includes(nomeProduto));
+    }).map(d => ({id: d.id, ...(d.data() as any)}));
+    
     trsRelacionadas.sort((a,b) => b.data.localeCompare(a.data)); // Mais recentes/futuras primeiro
 
     const batch = writeBatch(db);
@@ -185,8 +189,12 @@ export default function Home() {
 
   const excluirProdutoInteiro = async (id: string, nomeProduto: string) => {
     const qDocs = await getDocs(collection(db, "transacoes"));
-    const trsRelacionadas = qDocs.docs.filter(d => d.data().produtoId === id || (!d.data().produtoId && d.data().descricao.includes(nomeProduto)));
-    const totalAEstornar = trsRelacionadas.reduce((acc, curr) => acc + curr.data().valor, 0);
+    const trsRelacionadas = qDocs.docs.filter(d => {
+      const dataDoc = d.data() as any;
+      return dataDoc.produtoId === id || (!dataDoc.produtoId && dataDoc.descricao.includes(nomeProduto));
+    });
+    
+    const totalAEstornar = trsRelacionadas.reduce((acc, curr) => acc + (curr.data() as any).valor, 0);
 
     const msg = `CONFERÊNCIA DE EXCLUSÃO DE LOTE (PRODUTO):\n\nProduto: ${nomeProduto}\nLançamentos atrelados no Fluxo de Caixa: ${trsRelacionadas.length}\nValor total que será apagado do financeiro: R$ ${totalAEstornar.toFixed(2)}\n\nDeseja confirmar a exclusão do produto e recalcular todo o caixa?`;
 
@@ -223,7 +231,7 @@ export default function Home() {
             {modo === "CRIAR" && "Cadastrar Novo Produto"}
             {modo === "EDITAR" && `Editando Cadastro: ${itemAtivo?.sku}`}
             {modo === "REPOR" && `Entrada de Estoque: ${itemAtivo?.sku}`}
-            {modo !== "CRIAR" && <button onClick={limparFormulario} className="text-sm font-normal text-gray-500 hover:underline">Voltar para Cadastro</button>}
+            {modo !== "CRIAR" && <button type="button" onClick={limparFormulario} className="text-sm font-normal text-gray-500 hover:underline">Voltar para Cadastro</button>}
           </h2>
 
           <form onSubmit={handleSalvar} className="grid grid-cols-1 md:grid-cols-6 gap-4">
@@ -382,7 +390,7 @@ export default function Home() {
                                               })}
                                             </div>
                                           </td>
-                                          <td className="p-2"><input type="text" defaultValue={u.observacao || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "observacao", e.target.value)} placeholder="Rastreio..." className="w-full p-1 border rounded text-xs text-gray-700 focus:ring-blue-500" /></td>
+                                          <td className="p-2"><input type="text" defaultValue={u.observacao || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "observacao", e.target.value)} placeholder="Rastreio..." className="w-full p-1 border rounded text-xs text-gray-700 focus:ring-blue-500" title="Clique fora para salvar" /></td>
                                           <td className="p-2 text-center"><button onClick={() => excluirUnidade(item.id, u.id, item.nome, u.precoCompra)} className="text-red-400 hover:text-red-700 font-bold">X</button></td>
                                         </tr>
                                       ))}
