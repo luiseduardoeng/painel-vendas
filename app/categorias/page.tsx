@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase"; // Note os dois pontos para voltar duas pastas
+import { db } from "../../lib/firebase";
 import Link from "next/link";
 
 export default function GestaoCategorias() {
@@ -10,134 +10,207 @@ export default function GestaoCategorias() {
   const [categorias, setCategorias] = useState<any[]>([]);
   const [editandoId, setEditandoId] = useState<string | null>(null);
 
+  // Estados para Locais de Compra
+  const [nomeLocal, setNomeLocal] = useState("");
+  const [locais, setLocais] = useState<any[]>([]);
+
+  // NOVO: Estados para Canais de Venda
+  const [nomeCanal, setNomeCanal] = useState("");
+  const [canais, setCanais] = useState<any[]>([]);
+
   useEffect(() => {
-    const q = query(collection(db, "categorias"), orderBy("nome", "asc"));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    // Busca Categorias
+    const qCat = query(collection(db, "categorias"), orderBy("nome", "asc"));
+    const unsubCat = onSnapshot(qCat, (querySnapshot) => {
       const catArray: any[] = [];
       querySnapshot.forEach((doc) => catArray.push({ id: doc.id, ...doc.data() }));
       setCategorias(catArray);
     });
-    return () => unsubscribe();
+
+    // Busca Locais de Compra
+    const qLocais = query(collection(db, "locais"), orderBy("nome", "asc"));
+    const unsubLocais = onSnapshot(qLocais, (querySnapshot) => {
+      const locaisArray: any[] = [];
+      querySnapshot.forEach((doc) => locaisArray.push({ id: doc.id, ...doc.data() }));
+      setLocais(locaisArray);
+    });
+
+    // NOVO: Busca Canais de Venda
+    const qCanais = query(collection(db, "canais"), orderBy("nome", "asc"));
+    const unsubCanais = onSnapshot(qCanais, (querySnapshot) => {
+      const canaisArray: any[] = [];
+      querySnapshot.forEach((doc) => canaisArray.push({ id: doc.id, ...doc.data() }));
+      setCanais(canaisArray);
+    });
+
+    return () => { unsubCat(); unsubLocais(); unsubCanais(); };
   }, []);
 
-  const handleSalvar = async (e: React.FormEvent) => {
+  const handleSalvarCategoria = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nome) return;
-
-    // Transforma o texto separado por vírgulas em um array limpo
-    const arraySubcategorias = subcategorias
-      .split(",")
-      .map(sub => sub.trim())
-      .filter(sub => sub.length > 0);
-
+    const arraySubcategorias = subcategorias.split(",").map(sub => sub.trim()).filter(sub => sub.length > 0);
     try {
       if (editandoId) {
-        await updateDoc(doc(db, "categorias", editandoId), {
-          nome,
-          subcategorias: arraySubcategorias
-        });
+        await updateDoc(doc(db, "categorias", editandoId), { nome, subcategorias: arraySubcategorias });
         setEditandoId(null);
       } else {
-        await addDoc(collection(db, "categorias"), {
-          nome,
-          subcategorias: arraySubcategorias
-        });
+        await addDoc(collection(db, "categorias"), { nome, subcategorias: arraySubcategorias });
       }
-      setNome("");
-      setSubcategorias("");
-    } catch (error) {
-      console.error("Erro ao salvar categoria: ", error);
-    }
+      setNome(""); setSubcategorias("");
+    } catch (error) { console.error(error); }
   };
 
-  const editar = (cat: any) => {
-    setEditandoId(cat.id);
-    setNome(cat.nome);
-    setSubcategorias(cat.subcategorias.join(", "));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  const handleSalvarLocal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nomeLocal) return;
+    try {
+      await addDoc(collection(db, "locais"), { nome: nomeLocal });
+      setNomeLocal("");
+    } catch (error) { console.error(error); }
   };
 
-  const excluir = async (id: string) => {
-    if (window.confirm("Deseja mesmo apagar esta categoria?")) {
-      await deleteDoc(doc(db, "categorias", id));
-    }
+  const handleSalvarCanal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nomeCanal) return;
+    try {
+      // Ideal usar abreviações aqui, ex: ML, AMZ, SHOPEE
+      await addDoc(collection(db, "canais"), { nome: nomeCanal.toUpperCase() });
+      setNomeCanal("");
+    } catch (error) { console.error(error); }
+  };
+
+  const excluirLocal = async (id: string) => {
+    if (window.confirm("Apagar este local de compra?")) await deleteDoc(doc(db, "locais", id));
+  };
+  const excluirCategoria = async (id: string) => {
+    if (window.confirm("Apagar esta categoria?")) await deleteDoc(doc(db, "categorias", id));
+  };
+  const excluirCanal = async (id: string) => {
+    if (window.confirm("Apagar este Canal de Venda?")) await deleteDoc(doc(db, "canais", id));
   };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-800">
-      <div className="max-w-4xl mx-auto">
-        {/* Navegação entre páginas */}
+      <div className="max-w-7xl mx-auto">
         <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Gestão de Categorias</h1>
-          <Link href="/" className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-700 transition">
-            ← Voltar ao Painel
-          </Link>
+          <h1 className="text-3xl font-bold">Configurações do Sistema</h1>
+          <Link href="/" className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-700 transition">← Voltar ao Painel</Link>
         </div>
 
-        {/* Formulário */}
-        <div className={`p-6 rounded-lg shadow-sm border mb-8 ${editandoId ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
-          <h2 className="text-xl font-semibold mb-4">
-            {editandoId ? "Editar Categoria" : "Nova Categoria"}
-          </h2>
-          <form onSubmit={handleSalvar} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Nome da Categoria</label>
-              <input
-                type="text"
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                placeholder="Ex: Smart Home"
-                className="w-full p-2 border rounded focus:ring-blue-500 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Subcategorias (separe por vírgula)</label>
-              <input
-                type="text"
-                value={subcategorias}
-                onChange={(e) => setSubcategorias(e.target.value)}
-                placeholder="Ex: Iluminação, Segurança, Sensores"
-                className="w-full p-2 border rounded focus:ring-blue-500 bg-white"
-              />
-            </div>
-            <div className="md:col-span-2 mt-2">
-              <button type="submit" className={`text-white px-6 py-2 rounded font-medium ${editandoId ? 'bg-amber-500' : 'bg-blue-600'}`}>
-                {editandoId ? "Salvar Alterações" : "Criar Categoria"}
-              </button>
-              {editandoId && (
-                <button type="button" onClick={() => { setEditandoId(null); setNome(""); setSubcategorias(""); }} className="ml-3 text-gray-600">
-                  Cancelar
+        {/* Agora com 3 colunas em telas grandes */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          {/* COLUNA 1: CATEGORIAS */}
+          <div>
+            <div className={`p-5 rounded-lg shadow-sm border mb-4 ${editandoId ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
+              <h2 className="text-lg font-semibold mb-3">{editandoId ? "Editar Categoria" : "Nova Categoria"}</h2>
+              <form onSubmit={handleSalvarCategoria} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Nome da Categoria</label>
+                  <input type="text" value={nome} onChange={(e) => setNome(e.target.value)} className="w-full p-2 border rounded focus:ring-blue-500 bg-white text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Subcats (por vírgula)</label>
+                  <input type="text" value={subcategorias} onChange={(e) => setSubcategorias(e.target.value)} className="w-full p-2 border rounded focus:ring-blue-500 bg-white text-sm" />
+                </div>
+                <button type="submit" className={`text-white px-4 py-2 rounded font-medium text-sm w-full ${editandoId ? 'bg-amber-500' : 'bg-blue-600'}`}>
+                  {editandoId ? "Salvar" : "Criar Categoria"}
                 </button>
-              )}
+              </form>
             </div>
-          </form>
-        </div>
+            
+            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-gray-100">
+                  <tr><th className="p-3 border-b font-semibold text-sm">Categorias</th><th className="p-3 border-b font-semibold text-center text-sm">Ações</th></tr>
+                </thead>
+                <tbody>
+                  {categorias.map(cat => (
+                    <tr key={cat.id} className="hover:bg-gray-50">
+                      <td className="p-3 border-b">
+                        <div className="font-medium text-sm">{cat.nome}</div>
+                        <div className="text-[10px] text-gray-500 mt-1 leading-tight">{cat.subcategorias.join(", ")}</div>
+                      </td>
+                      <td className="p-3 border-b text-center space-x-2">
+                        <button onClick={() => {setEditandoId(cat.id); setNome(cat.nome); setSubcategorias(cat.subcategorias.join(", "));}} className="text-blue-500 hover:text-blue-700 text-xs font-medium">Editar</button>
+                        <button onClick={() => excluirCategoria(cat.id)} className="text-red-500 hover:text-red-700 text-xs font-medium">Excluir</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-        {/* Lista de Categorias */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-4 border-b font-semibold">Categoria</th>
-                <th className="p-4 border-b font-semibold">Subcategorias</th>
-                <th className="p-4 border-b font-semibold text-center">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categorias.map(cat => (
-                <tr key={cat.id} className="hover:bg-gray-50">
-                  <td className="p-4 border-b font-medium">{cat.nome}</td>
-                  <td className="p-4 border-b text-gray-600">
-                    {cat.subcategorias.join(", ") || <span className="text-gray-400">Nenhuma</span>}
-                  </td>
-                  <td className="p-4 border-b text-center space-x-3">
-                    <button onClick={() => editar(cat)} className="text-blue-500 hover:text-blue-700 text-sm font-medium">Editar</button>
-                    <button onClick={() => excluir(cat.id)} className="text-red-500 hover:text-red-700 text-sm font-medium">Excluir</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* COLUNA 2: FORNECEDORES (Locais Compra) */}
+          <div>
+            <div className="p-5 rounded-lg shadow-sm border mb-4 bg-white">
+              <h2 className="text-lg font-semibold mb-3">Locais de Compra</h2>
+              <form onSubmit={handleSalvarLocal} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Fornecedor (AliExpress, Shopee...)</label>
+                  <input type="text" value={nomeLocal} onChange={(e) => setNomeLocal(e.target.value)} className="w-full p-2 border rounded focus:ring-blue-500 bg-white text-sm" />
+                </div>
+                <button type="submit" className="bg-emerald-600 text-white px-4 py-2 rounded font-medium text-sm w-full hover:bg-emerald-700">
+                  Cadastrar Fornecedor
+                </button>
+              </form>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-gray-100">
+                  <tr><th className="p-3 border-b font-semibold text-sm">Locais Cadastrados</th><th className="p-3 border-b font-semibold text-center text-sm">Ações</th></tr>
+                </thead>
+                <tbody>
+                  {locais.map(loc => (
+                    <tr key={loc.id} className="hover:bg-gray-50">
+                      <td className="p-3 border-b font-medium text-sm">{loc.nome}</td>
+                      <td className="p-3 border-b text-center">
+                        <button onClick={() => excluirLocal(loc.id)} className="text-red-500 hover:text-red-700 text-xs font-medium">Excluir</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* COLUNA 3: CANAIS DE VENDA (NOVO) */}
+          <div>
+            <div className="p-5 rounded-lg shadow-sm border mb-4 bg-white">
+              <h2 className="text-lg font-semibold mb-3">Canais de Anúncio</h2>
+              <form onSubmit={handleSalvarCanal} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Sigla do Canal (ML, OLX, AMZ...)</label>
+                  <input type="text" value={nomeCanal} onChange={(e) => setNomeCanal(e.target.value)} className="w-full p-2 border rounded focus:ring-blue-500 bg-white text-sm uppercase" />
+                </div>
+                <button type="submit" className="bg-purple-600 text-white px-4 py-2 rounded font-medium text-sm w-full hover:bg-purple-700">
+                  Cadastrar Canal
+                </button>
+              </form>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-gray-100">
+                  <tr><th className="p-3 border-b font-semibold text-sm">Canais Ativos</th><th className="p-3 border-b font-semibold text-center text-sm">Ações</th></tr>
+                </thead>
+                <tbody>
+                  {canais.map(canal => (
+                    <tr key={canal.id} className="hover:bg-gray-50">
+                      <td className="p-3 border-b font-bold text-sm text-purple-700">{canal.nome}</td>
+                      <td className="p-3 border-b text-center">
+                        <button onClick={() => excluirCanal(canal.id)} className="text-red-500 hover:text-red-700 text-xs font-medium">Excluir</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
