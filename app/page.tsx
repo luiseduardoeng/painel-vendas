@@ -110,10 +110,10 @@ export default function Home() {
       if (modo === "CRIAR") {
         if (!nome) return;
         const novasUnidades = Array.from({ length: qtd }, () => ({
-          id: gerarIDUnidade(), precoCompra: parseFloat(precoCompra), precoVenda: 0,
+          id: gerarIDUnidade(), precoCompra: parseFloat(precoCompra), precoVenda: 0, valorRecebido: 0,
           localCompra: localCompra || "Não informado", status: "aguardando recebimento", locaisAnunciados: [], observacao: ""
         }));
-        // Salva e recupera a ID
+        
         const docRef = await addDoc(collection(db, "produtos"), {
           nome, categoria: categoria || "Sem Categoria", subcategoria: subcategoria || "Sem Subcategoria",
           sku: gerarSKU(nome), unidades: novasUnidades, criadoEm: new Date()
@@ -127,7 +127,7 @@ export default function Home() {
       } 
       else if (modo === "REPOR" && itemAtivo) {
         const novasUnidades = Array.from({ length: qtd }, () => ({
-          id: gerarIDUnidade(), precoCompra: parseFloat(precoCompra), precoVenda: 0,
+          id: gerarIDUnidade(), precoCompra: parseFloat(precoCompra), precoVenda: 0, valorRecebido: 0,
           localCompra: localCompra || "Não informado", status: "aguardando recebimento", locaisAnunciados: [], observacao: ""
         }));
         const unidadesExistentes = itemAtivo.unidades || [];
@@ -145,15 +145,24 @@ export default function Home() {
     try { await updateDoc(doc(db, "produtos", produtoId), { unidades: unidadesAtualizadas }); } catch (error) { console.error(error); }
   };
 
-  const toggleCanalUnidade = async (produtoId: string, unidadeId: string, nomeCanal: string, canaisAtuais: string[]) => {
+  // NOVO: Controle de Seleção de Canal (Múltiplos ou Único se for finalizado)
+  const toggleCanalUnidade = async (produtoId: string, unidadeId: string, nomeCanal: string, canaisAtuais: string[], isUnico: boolean) => {
     const produto = itens.find(i => i.id === produtoId);
     if (!produto) return;
-    const novaListaCanais = canaisAtuais.includes(nomeCanal) ? canaisAtuais.filter(c => c !== nomeCanal) : [...canaisAtuais, nomeCanal];
+
+    let novaListaCanais: string[] = [];
+    if (isUnico) {
+      // Se for único (vendido), seleciona só aquele ou tira se clicar de novo no mesmo
+      novaListaCanais = canaisAtuais.includes(nomeCanal) ? [] : [nomeCanal];
+    } else {
+      // Se for anúncio (múltiplos), adiciona/remove livremente
+      novaListaCanais = canaisAtuais.includes(nomeCanal) ? canaisAtuais.filter(c => c !== nomeCanal) : [...canaisAtuais, nomeCanal];
+    }
+
     const unidadesAtualizadas = produto.unidades.map((u: any) => u.id === unidadeId ? { ...u, locaisAnunciados: novaListaCanais } : u);
     try { await updateDoc(doc(db, "produtos", produtoId), { unidades: unidadesAtualizadas }); } catch (error) { console.error(error); }
   };
 
-  // EXCLUSÃO COM INTEGRAÇÃO E POP-UP (CORRIGIDA PARA TYPESCRIPT / VERCEL)
   const excluirUnidade = async (produtoId: string, unidadeId: string, nomeProduto: string, custoUnidade: number) => {
     const msg = `CONFERÊNCIA DE EXCLUSÃO DE UNIDADE:\n\nCusto desta unidade: R$ ${custoUnidade.toFixed(2)}\n\nAo excluir, este valor será subtraído da próxima parcela atrelada a este produto no Fluxo de Caixa para manter seu saldo correto.\n\nConfirma a exclusão?`;
     if(!window.confirm(msg)) return;
@@ -161,14 +170,13 @@ export default function Home() {
     const produto = itens.find(i => i.id === produtoId);
     const unidadesRestantes = produto.unidades.filter((u: any) => u.id !== unidadeId);
 
-    // Busca transacoes do Financeiro com tipagem "any" para a Vercel não reclamar
     const qDocs = await getDocs(collection(db, "transacoes"));
     const trsRelacionadas: any[] = qDocs.docs.filter(d => {
       const dataDoc = d.data() as any;
       return dataDoc.produtoId === produtoId || (!dataDoc.produtoId && dataDoc.descricao.includes(nomeProduto));
     }).map(d => ({id: d.id, ...(d.data() as any)}));
     
-    trsRelacionadas.sort((a,b) => b.data.localeCompare(a.data)); // Mais recentes/futuras primeiro
+    trsRelacionadas.sort((a,b) => b.data.localeCompare(a.data)); 
 
     const batch = writeBatch(db);
     batch.update(doc(db, "produtos", produtoId), { unidades: unidadesRestantes });
@@ -193,7 +201,6 @@ export default function Home() {
       const dataDoc = d.data() as any;
       return dataDoc.produtoId === id || (!dataDoc.produtoId && dataDoc.descricao.includes(nomeProduto));
     });
-    
     const totalAEstornar = trsRelacionadas.reduce((acc, curr) => acc + (curr.data() as any).valor, 0);
 
     const msg = `CONFERÊNCIA DE EXCLUSÃO DE LOTE (PRODUTO):\n\nProduto: ${nomeProduto}\nLançamentos atrelados no Fluxo de Caixa: ${trsRelacionadas.length}\nValor total que será apagado do financeiro: R$ ${totalAEstornar.toFixed(2)}\n\nDeseja confirmar a exclusão do produto e recalcular todo o caixa?`;
@@ -259,7 +266,6 @@ export default function Home() {
                 <div className="md:col-span-6 border-t pt-4 mt-2">
                   <h3 className="text-sm font-bold text-gray-600 mb-3">Dados da Compra (Integração Financeira Automática)</h3>
                 </div>
-
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-1">Local (Fornecedor)</label>
                   <select value={localCompra} onChange={(e) => setLocalCompra(e.target.value)} className="w-full p-2 border rounded bg-white">
@@ -324,7 +330,7 @@ export default function Home() {
                 <th className="p-4 font-semibold text-sm text-center">Ticket Médio (Compra)</th>
                 <th className="p-4 font-semibold text-sm text-center">Ticket Médio (Venda)</th>
                 <th className="p-4 font-semibold text-sm text-center">Estoque Ativo</th>
-                <th className="p-4 font-semibold text-sm text-center">ROI Médio</th>
+                <th className="p-4 font-semibold text-sm text-center">ROI Médio Real</th>
                 <th className="p-4 font-semibold text-sm text-right">Ações Principais</th>
               </tr>
             </thead>
@@ -338,12 +344,28 @@ export default function Home() {
                       const unidades = item.unidades || [];
                       const unidadesAtivas = unidades.filter((u: any) => u.status !== 'finalizado');
                       const qtdEstoque = unidadesAtivas.length;
+                      
                       const totalCompra = unidades.reduce((acc: number, u: any) => acc + (Number(u.precoCompra) || 0), 0);
                       const ticketCompra = unidades.length > 0 ? totalCompra / unidades.length : 0;
+                      
                       const unidadesComVenda = unidades.filter((u: any) => (Number(u.precoVenda) || 0) > 0);
                       const totalVenda = unidadesComVenda.reduce((acc: number, u: any) => acc + (Number(u.precoVenda) || 0), 0);
                       const ticketVenda = unidadesComVenda.length > 0 ? totalVenda / unidadesComVenda.length : 0;
-                      const roi = ticketCompra > 0 && ticketVenda > 0 ? ((ticketVenda - ticketCompra) / ticketCompra) * 100 : 0;
+                      
+                      // NOVO ROI Médio (Baseado na Receita Real se vendido, ou na Venda se não vendido)
+                      let somaROI = 0;
+                      let qtdROI = 0;
+                      unidades.forEach((u: any) => {
+                        const custo = Number(u.precoCompra) || 0;
+                        // Se já finalizou e preencheu recebido, usa o recebido. Se não, usa expectativa de venda.
+                        const receita = (u.status === 'finalizado' && (Number(u.valorRecebido) > 0)) ? Number(u.valorRecebido) : Number(u.precoVenda);
+                        if (custo > 0 && receita > 0) {
+                          somaROI += ((receita - custo) / custo) * 100;
+                          qtdROI += 1;
+                        }
+                      });
+                      const roiReal = qtdROI > 0 ? somaROI / qtdROI : 0;
+
                       const isExpanded = expandido[item.id];
 
                       return (
@@ -351,49 +373,84 @@ export default function Home() {
                           <tr className={`border-b hover:bg-blue-50 cursor-pointer transition ${isExpanded ? 'bg-blue-50' : ''}`} onClick={() => toggleExpand(item.id)}>
                             <td className="p-4"><div className="font-bold text-gray-800">{item.nome}</div><div className="text-xs text-blue-600 font-mono mt-1">{item.sku}</div></td>
                             <td className="p-4 text-center text-red-600 font-medium">R$ {ticketCompra.toFixed(2)}</td>
-                            <td className="p-4 text-center text-green-600 font-medium">{ticketVenda > 0 ? `R$ ${ticketVenda.toFixed(2)}` : '-'}</td>
+                            <td className="p-4 text-center text-blue-600 font-medium">{ticketVenda > 0 ? `R$ ${ticketVenda.toFixed(2)}` : '-'}</td>
                             <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-sm font-bold ${qtdEstoque > 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>{qtdEstoque} un.</span></td>
-                            <td className="p-4 text-center font-bold text-amber-600">{roi > 0 ? `${roi.toFixed(1)}%` : '-'}</td>
+                            <td className="p-4 text-center font-bold text-green-600">{roiReal > 0 ? `${roiReal.toFixed(1)}%` : '-'}</td>
                             <td className="p-4 text-right space-x-2">
                               <button onClick={(e) => { e.stopPropagation(); iniciarReposicao(item); }} className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-xs font-semibold hover:bg-emerald-200">+ Repor</button>
                               <button onClick={(e) => { e.stopPropagation(); iniciarEdicao(item); }} className="bg-gray-200 text-gray-800 px-2 py-1 rounded text-xs font-semibold hover:bg-gray-300">Editar</button>
                               <button onClick={(e) => { e.stopPropagation(); excluirProdutoInteiro(item.id, item.nome); }} className="text-red-500 hover:text-red-700 text-xs font-bold px-1">X</button>
                             </td>
                           </tr>
+                          
+                          {/* SUB-LINHAS (UNIDADES) */}
                           {isExpanded && unidades.length > 0 && (
                             <tr className="bg-gray-50 border-b">
                               <td colSpan={6} className="p-0">
-                                <div className="p-4 pl-8 shadow-inner overflow-x-auto">
-                                  <table className="w-full text-sm text-left bg-white border border-gray-200 rounded min-w-[1000px]">
+                                <div className="p-4 shadow-inner overflow-x-auto">
+                                  <table className="w-full text-sm text-left bg-white border border-gray-200 rounded min-w-[1200px]">
                                     <thead className="bg-gray-100">
-                                      <tr><th className="p-2 border-b w-24">ID</th><th className="p-2 border-b">Fornecedor</th><th className="p-2 border-b">Custo (R$)</th><th className="p-2 border-b">Venda (R$)</th><th className="p-2 border-b w-36">Status</th><th className="p-2 border-b w-48">Anunciado em</th><th className="p-2 border-b">Observação</th><th className="p-2 border-b text-center">Ações</th></tr>
+                                      <tr>
+                                        <th className="p-2 border-b">ID</th>
+                                        <th className="p-2 border-b">Fornecedor</th>
+                                        <th className="p-2 border-b">Custo</th>
+                                        <th className="p-2 border-b text-blue-700">Venda (R$)</th>
+                                        <th className="p-2 border-b text-green-700">Recebido Liq. (R$)</th>
+                                        <th className="p-2 border-b text-red-700">Taxa</th>
+                                        <th className="p-2 border-b w-36">Status</th>
+                                        <th className="p-2 border-b w-48">Canais / Venda</th>
+                                        <th className="p-2 border-b">Observação</th>
+                                        <th className="p-2 border-b text-center">Ações</th>
+                                      </tr>
                                     </thead>
                                     <tbody>
-                                      {unidades.map((u: any) => (
-                                        <tr key={u.id} className="hover:bg-gray-50 border-b last:border-0">
-                                          <td className="p-2 font-mono text-gray-500 text-[10px]">{u.id}</td>
-                                          <td className="p-2 text-gray-600 text-xs">{u.localCompra}</td>
-                                          <td className="p-2 text-red-600 font-medium">R$ {Number(u.precoCompra).toFixed(2)}</td>
-                                          <td className="p-2"><input type="number" step="0.01" defaultValue={u.precoVenda || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "precoVenda", parseFloat(e.target.value) || 0)} placeholder="0.00" className="w-20 p-1 border rounded text-green-700 font-medium text-xs" /></td>
-                                          <td className="p-2">
-                                            <select value={u.status} onChange={(e) => atualizarUnidade(item.id, u.id, "status", e.target.value)} className={`w-full p-1 border rounded text-[10px] font-semibold ${u.status === 'finalizado' ? 'bg-green-100 text-green-800' : u.status === 'enviado' ? 'bg-blue-100 text-blue-800' : u.status === 'para anuncio' ? 'bg-purple-100 text-purple-800' : 'bg-amber-100 text-amber-800'}`}>
-                                              <option value="aguardando recebimento">Aguard. Recebimento</option><option value="para anuncio">Para Anúncio</option><option value="anunciado">Anunciado</option><option value="aguardando entrega">Aguard. Entrega</option><option value="enviado">Enviado</option><option value="finalizado">Finalizado (Vendido)</option>
-                                            </select>
-                                          </td>
-                                          <td className="p-2">
-                                            <div className="flex flex-wrap gap-1">
-                                              {canaisDB.length === 0 && <span className="text-[10px] text-gray-400">Sem canais</span>}
-                                              {canaisDB.map(canal => {
-                                                const locais = u.locaisAnunciados || [];
-                                                const ativo = locais.includes(canal.nome);
-                                                return (<button key={canal.id} onClick={() => toggleCanalUnidade(item.id, u.id, canal.nome, locais)} className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${ativo ? 'bg-purple-600 text-white border-purple-700 font-bold' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} title={`Clique para marcar/desmarcar: ${canal.nome}`}>{canal.nome}</button>)
-                                              })}
-                                            </div>
-                                          </td>
-                                          <td className="p-2"><input type="text" defaultValue={u.observacao || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "observacao", e.target.value)} placeholder="Rastreio..." className="w-full p-1 border rounded text-xs text-gray-700 focus:ring-blue-500" title="Clique fora para salvar" /></td>
-                                          <td className="p-2 text-center"><button onClick={() => excluirUnidade(item.id, u.id, item.nome, u.precoCompra)} className="text-red-400 hover:text-red-700 font-bold">X</button></td>
-                                        </tr>
-                                      ))}
+                                      {unidades.map((u: any) => {
+                                        const taxaAuto = (Number(u.precoVenda) > 0 && Number(u.valorRecebido) > 0) 
+                                          ? (Number(u.precoVenda) - Number(u.valorRecebido)) 
+                                          : 0;
+
+                                        return(
+                                          <tr key={u.id} className="hover:bg-gray-50 border-b last:border-0">
+                                            <td className="p-2 font-mono text-gray-500 text-[10px]">{u.id}</td>
+                                            <td className="p-2 text-gray-600 text-xs">{u.localCompra}</td>
+                                            <td className="p-2 text-red-600 font-medium">R$ {Number(u.precoCompra).toFixed(2)}</td>
+                                            <td className="p-2">
+                                              <input type="number" step="0.01" defaultValue={u.precoVenda || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "precoVenda", parseFloat(e.target.value) || 0)} placeholder="0.00" className="w-20 p-1 border rounded text-blue-700 font-medium text-xs" />
+                                            </td>
+                                            <td className="p-2">
+                                              <input type="number" step="0.01" defaultValue={u.valorRecebido || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "valorRecebido", parseFloat(e.target.value) || 0)} placeholder="0.00" className="w-20 p-1 border rounded text-green-700 font-medium text-xs bg-green-50" />
+                                            </td>
+                                            <td className="p-2 text-xs font-bold text-red-500">
+                                              {taxaAuto > 0 ? `R$ ${taxaAuto.toFixed(2)}` : '-'}
+                                            </td>
+                                            <td className="p-2">
+                                              <select value={u.status} onChange={(e) => atualizarUnidade(item.id, u.id, "status", e.target.value)} className={`w-full p-1 border rounded text-[10px] font-semibold ${u.status === 'finalizado' ? 'bg-green-100 text-green-800' : u.status === 'enviado' ? 'bg-blue-100 text-blue-800' : u.status === 'para anuncio' ? 'bg-purple-100 text-purple-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                <option value="aguardando recebimento">Aguard. Recebimento</option><option value="para anuncio">Para Anúncio</option><option value="anunciado">Anunciado</option><option value="aguardando entrega">Aguard. Entrega</option><option value="enviado">Enviado</option><option value="finalizado">Finalizado (Vendido)</option>
+                                              </select>
+                                            </td>
+                                            <td className="p-2">
+                                              <div className="text-[9px] text-gray-500 mb-0.5">{u.status === 'finalizado' ? 'Vendido em (Selecione 1):' : 'Anunciado em:'}</div>
+                                              <div className="flex flex-wrap gap-1">
+                                                {canaisDB.length === 0 && <span className="text-[10px] text-gray-400">Sem canais</span>}
+                                                {canaisDB.map(canal => {
+                                                  const locais = u.locaisAnunciados || [];
+                                                  const ativo = locais.includes(canal.nome);
+                                                  const isUnico = u.status === 'finalizado'; // Se tá vendido, só deixa marcar 1
+                                                  return (
+                                                    <button key={canal.id} onClick={() => toggleCanalUnidade(item.id, u.id, canal.nome, locais, isUnico)} 
+                                                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${ativo ? (isUnico ? 'bg-green-600 text-white border-green-700 font-bold' : 'bg-purple-600 text-white border-purple-700 font-bold') : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} 
+                                                      title={isUnico ? `Marcar vendido por: ${canal.nome}` : `Marcar anúncio em: ${canal.nome}`}>
+                                                      {canal.nome}
+                                                    </button>
+                                                  )
+                                                })}
+                                              </div>
+                                            </td>
+                                            <td className="p-2"><input type="text" defaultValue={u.observacao || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "observacao", e.target.value)} placeholder="Rastreio..." className="w-full p-1 border rounded text-xs text-gray-700 focus:ring-blue-500" title="Clique fora para salvar" /></td>
+                                            <td className="p-2 text-center"><button onClick={() => excluirUnidade(item.id, u.id, item.nome, u.precoCompra)} className="text-red-400 hover:text-red-700 font-bold">X</button></td>
+                                          </tr>
+                                        )
+                                      })}
                                     </tbody>
                                   </table>
                                 </div>
