@@ -145,17 +145,14 @@ export default function Home() {
     try { await updateDoc(doc(db, "produtos", produtoId), { unidades: unidadesAtualizadas }); } catch (error) { console.error(error); }
   };
 
-  // NOVO: Controle de Seleção de Canal (Múltiplos ou Único se for finalizado)
   const toggleCanalUnidade = async (produtoId: string, unidadeId: string, nomeCanal: string, canaisAtuais: string[], isUnico: boolean) => {
     const produto = itens.find(i => i.id === produtoId);
     if (!produto) return;
 
     let novaListaCanais: string[] = [];
     if (isUnico) {
-      // Se for único (vendido), seleciona só aquele ou tira se clicar de novo no mesmo
       novaListaCanais = canaisAtuais.includes(nomeCanal) ? [] : [nomeCanal];
     } else {
-      // Se for anúncio (múltiplos), adiciona/remove livremente
       novaListaCanais = canaisAtuais.includes(nomeCanal) ? canaisAtuais.filter(c => c !== nomeCanal) : [...canaisAtuais, nomeCanal];
     }
 
@@ -266,6 +263,7 @@ export default function Home() {
                 <div className="md:col-span-6 border-t pt-4 mt-2">
                   <h3 className="text-sm font-bold text-gray-600 mb-3">Dados da Compra (Integração Financeira Automática)</h3>
                 </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-1">Local (Fornecedor)</label>
                   <select value={localCompra} onChange={(e) => setLocalCompra(e.target.value)} className="w-full p-2 border rounded bg-white">
@@ -352,20 +350,20 @@ export default function Home() {
                       const totalVenda = unidadesComVenda.reduce((acc: number, u: any) => acc + (Number(u.precoVenda) || 0), 0);
                       const ticketVenda = unidadesComVenda.length > 0 ? totalVenda / unidadesComVenda.length : 0;
                       
-                      // NOVO ROI Médio (Baseado na Receita Real se vendido, ou na Venda se não vendido)
+                      // NOVO ROI Médio (Agora permite mostrar negativos caso o lucro seja negativo)
                       let somaROI = 0;
                       let qtdROI = 0;
                       unidades.forEach((u: any) => {
                         const custo = Number(u.precoCompra) || 0;
-                        // Se já finalizou e preencheu recebido, usa o recebido. Se não, usa expectativa de venda.
                         const receita = (u.status === 'finalizado' && (Number(u.valorRecebido) > 0)) ? Number(u.valorRecebido) : Number(u.precoVenda);
                         if (custo > 0 && receita > 0) {
                           somaROI += ((receita - custo) / custo) * 100;
                           qtdROI += 1;
                         }
                       });
-                      const roiReal = qtdROI > 0 ? somaROI / qtdROI : 0;
-
+                      
+                      const hasRoi = qtdROI > 0;
+                      const roiReal = hasRoi ? somaROI / qtdROI : 0;
                       const isExpanded = expandido[item.id];
 
                       return (
@@ -375,7 +373,12 @@ export default function Home() {
                             <td className="p-4 text-center text-red-600 font-medium">R$ {ticketCompra.toFixed(2)}</td>
                             <td className="p-4 text-center text-blue-600 font-medium">{ticketVenda > 0 ? `R$ ${ticketVenda.toFixed(2)}` : '-'}</td>
                             <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-sm font-bold ${qtdEstoque > 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>{qtdEstoque} un.</span></td>
-                            <td className="p-4 text-center font-bold text-green-600">{roiReal > 0 ? `${roiReal.toFixed(1)}%` : '-'}</td>
+                            
+                            {/* CÉLULA DO ROI CORRIGIDA PARA MOSTRAR NEGATIVOS EM VERMELHO */}
+                            <td className={`p-4 text-center font-bold ${hasRoi ? (roiReal >= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-400'}`}>
+                              {hasRoi ? `${roiReal.toFixed(1)}%` : '-'}
+                            </td>
+
                             <td className="p-4 text-right space-x-2">
                               <button onClick={(e) => { e.stopPropagation(); iniciarReposicao(item); }} className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-xs font-semibold hover:bg-emerald-200">+ Repor</button>
                               <button onClick={(e) => { e.stopPropagation(); iniciarEdicao(item); }} className="bg-gray-200 text-gray-800 px-2 py-1 rounded text-xs font-semibold hover:bg-gray-300">Editar</button>
@@ -383,7 +386,6 @@ export default function Home() {
                             </td>
                           </tr>
                           
-                          {/* SUB-LINHAS (UNIDADES) */}
                           {isExpanded && unidades.length > 0 && (
                             <tr className="bg-gray-50 border-b">
                               <td colSpan={6} className="p-0">
@@ -435,7 +437,7 @@ export default function Home() {
                                                 {canaisDB.map(canal => {
                                                   const locais = u.locaisAnunciados || [];
                                                   const ativo = locais.includes(canal.nome);
-                                                  const isUnico = u.status === 'finalizado'; // Se tá vendido, só deixa marcar 1
+                                                  const isUnico = u.status === 'finalizado'; 
                                                   return (
                                                     <button key={canal.id} onClick={() => toggleCanalUnidade(item.id, u.id, canal.nome, locais, isUnico)} 
                                                       className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${ativo ? (isUnico ? 'bg-green-600 text-white border-green-700 font-bold' : 'bg-purple-600 text-white border-purple-700 font-bold') : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} 
