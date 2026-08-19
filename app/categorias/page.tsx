@@ -14,7 +14,7 @@ export default function GestaoCategorias() {
   const [nomeLocal, setNomeLocal] = useState("");
   const [locais, setLocais] = useState<any[]>([]);
 
-  // NOVO: Estados para Canais de Venda
+  // Estados para Canais de Venda
   const [nomeCanal, setNomeCanal] = useState("");
   const [canais, setCanais] = useState<any[]>([]);
 
@@ -35,7 +35,7 @@ export default function GestaoCategorias() {
       setLocais(locaisArray);
     });
 
-    // NOVO: Busca Canais de Venda
+    // Busca Canais de Venda
     const qCanais = query(collection(db, "canais"), orderBy("nome", "asc"));
     const unsubCanais = onSnapshot(qCanais, (querySnapshot) => {
       const canaisArray: any[] = [];
@@ -49,16 +49,48 @@ export default function GestaoCategorias() {
   const handleSalvarCategoria = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nome) return;
-    const arraySubcategorias = subcategorias.split(",").map(sub => sub.trim()).filter(sub => sub.length > 0);
+    
+    // Limpa as subcategorias digitadas
+    const arraySubcategoriasNovas = subcategorias.split(",").map(sub => sub.trim()).filter(sub => sub.length > 0);
+    
     try {
       if (editandoId) {
-        await updateDoc(doc(db, "categorias", editandoId), { nome, subcategorias: arraySubcategorias });
+        // MODO EDIÇÃO: Atualiza a categoria específica que clicamos em "Editar"
+        await updateDoc(doc(db, "categorias", editandoId), { 
+          nome: nome.trim(), 
+          subcategorias: arraySubcategoriasNovas 
+        });
         setEditandoId(null);
       } else {
-        await addDoc(collection(db, "categorias"), { nome, subcategorias: arraySubcategorias });
+        // MODO CRIAÇÃO: Verifica se a categoria já existe (ignorando maiúsculas e minúsculas)
+        const categoriaExistente = categorias.find(
+          cat => cat.nome.toLowerCase() === nome.toLowerCase().trim()
+        );
+
+        if (categoriaExistente) {
+          // SE JÁ EXISTE: Vamos fundir (merge) as subcategorias para não duplicar a categoria pai
+          const subcategoriasAtuais = categoriaExistente.subcategorias || [];
+          
+          // O "Set" remove automaticamente nomes duplicados (ex: se colocar "Segurança" de novo, ele ignora)
+          const subcategoriasFundidas = Array.from(new Set([...subcategoriasAtuais, ...arraySubcategoriasNovas]));
+          
+          await updateDoc(doc(db, "categorias", categoriaExistente.id), { 
+            subcategorias: subcategoriasFundidas 
+          });
+        } else {
+          // SE NÃO EXISTE: Cria uma categoria nova do zero
+          await addDoc(collection(db, "categorias"), { 
+            nome: nome.trim(), 
+            subcategorias: arraySubcategoriasNovas 
+          });
+        }
       }
-      setNome(""); setSubcategorias("");
-    } catch (error) { console.error(error); }
+      // Limpa os campos
+      setNome(""); 
+      setSubcategorias("");
+    } catch (error) { 
+      console.error(error); 
+    }
   };
 
   const handleSalvarLocal = async (e: React.FormEvent) => {
@@ -74,7 +106,6 @@ export default function GestaoCategorias() {
     e.preventDefault();
     if (!nomeCanal) return;
     try {
-      // Ideal usar abreviações aqui, ex: ML, AMZ, SHOPEE
       await addDoc(collection(db, "canais"), { nome: nomeCanal.toUpperCase() });
       setNomeCanal("");
     } catch (error) { console.error(error); }
@@ -98,7 +129,6 @@ export default function GestaoCategorias() {
           <Link href="/" className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-700 transition">← Voltar ao Painel</Link>
         </div>
 
-        {/* Agora com 3 colunas em telas grandes */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           
           {/* COLUNA 1: CATEGORIAS */}
@@ -108,14 +138,27 @@ export default function GestaoCategorias() {
               <form onSubmit={handleSalvarCategoria} className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium mb-1">Nome da Categoria</label>
-                  <input type="text" value={nome} onChange={(e) => setNome(e.target.value)} className="w-full p-2 border rounded focus:ring-blue-500 bg-white text-sm" />
+                  {/* NOVO: Input com datalist (lista suspensa inteligente) */}
+                  <input 
+                    type="text" 
+                    list="lista-categorias"
+                    value={nome} 
+                    onChange={(e) => setNome(e.target.value)} 
+                    placeholder="Digite ou selecione..."
+                    className="w-full p-2 border rounded focus:ring-blue-500 bg-white text-sm" 
+                  />
+                  <datalist id="lista-categorias">
+                    {categorias.map(cat => (
+                      <option key={cat.id} value={cat.nome} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1">Subcats (por vírgula)</label>
                   <input type="text" value={subcategorias} onChange={(e) => setSubcategorias(e.target.value)} className="w-full p-2 border rounded focus:ring-blue-500 bg-white text-sm" />
                 </div>
                 <button type="submit" className={`text-white px-4 py-2 rounded font-medium text-sm w-full ${editandoId ? 'bg-amber-500' : 'bg-blue-600'}`}>
-                  {editandoId ? "Salvar" : "Criar Categoria"}
+                  {editandoId ? "Salvar Edição" : "Salvar Categoria"}
                 </button>
               </form>
             </div>
@@ -177,7 +220,7 @@ export default function GestaoCategorias() {
             </div>
           </div>
 
-          {/* COLUNA 3: CANAIS DE VENDA (NOVO) */}
+          {/* COLUNA 3: CANAIS DE VENDA */}
           <div>
             <div className="p-5 rounded-lg shadow-sm border mb-4 bg-white">
               <h2 className="text-lg font-semibold mb-3">Canais de Anúncio</h2>
