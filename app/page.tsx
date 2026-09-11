@@ -1,473 +1,362 @@
 "use client";
 import React, { useState, useEffect, Fragment } from "react";
-import { collection, addDoc, getDocs, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import Link from "next/link";
+import Link from "next/link"; 
 
-type ModoFormulario = "CRIAR" | "EDITAR" | "REPOR";
-
-export default function Home() {
+export default function Fornecedores() {
+  // --- ESTADOS DO FORMULÁRIO ---
+  // 1. Dados Gerais
   const [nome, setNome] = useState("");
-  const [categoria, setCategoria] = useState("");
-  const [subcategoria, setSubcategoria] = useState("");
-  const [precoCompra, setPrecoCompra] = useState("");
-  const [localCompra, setLocalCompra] = useState(""); 
-  const [estoque, setEstoque] = useState("");
-
-  const [formaPagamento, setFormaPagamento] = useState<"PIX" | "CARTAO">("PIX");
-  const [parcelas, setParcelas] = useState(1);
-  const [dataCompra, setDataCompra] = useState(new Date().toISOString().split("T")[0]);
-
-  const [itens, setItens] = useState<any[]>([]);
-  const [categoriasDB, setCategoriasDB] = useState<any[]>([]);
-  const [locaisDB, setLocaisDB] = useState<any[]>([]); 
-  const [canaisDB, setCanaisDB] = useState<any[]>([]); 
+  const [plataforma, setPlataforma] = useState("");
+  const [linkLoja, setLinkLoja] = useState("");
   
+  // 2. Contatos Diretos
+  const [contatoNome, setContatoNome] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [wechat, setWechat] = useState("");
+  const [email, setEmail] = useState("");
+  
+  // 3. Logística Base
+  const [paisOrigem, setPaisOrigem] = useState("");
+  const [fusoHorario, setFusoHorario] = useState("");
+  const [tempoProcessamento, setTempoProcessamento] = useState("");
+  
+  // 4. Catálogo e Financeiro
+  const [nicho, setNicho] = useState("");
+  const [skusInteresse, setSkusInteresse] = useState("");
+  const [anotacoesPreco, setAnotacoesPreco] = useState("");
+  const [ltv, setLtv] = useState("");
+  const [metodosPagamento, setMetodosPagamento] = useState("");
+  
+  // 5. Observações
+  const [observacoes, setObservacoes] = useState("");
+
+  const [fornecedores, setFornecedores] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
-  const [modo, setModo] = useState<ModoFormulario>("CRIAR");
-  const [itemAtivo, setItemAtivo] = useState<any>(null);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const qProd = query(collection(db, "produtos"), orderBy("criadoEm", "desc"));
-    const unsubProd = onSnapshot(qProd, (querySnapshot) => {
-      const produtosFirestore: any[] = [];
-      querySnapshot.forEach((doc) => produtosFirestore.push({ id: doc.id, ...doc.data() }));
-      setItens(produtosFirestore);
+    const q = query(collection(db, "fornecedores"), orderBy("criadoEm", "desc"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const lista: any[] = [];
+      querySnapshot.forEach((doc) => lista.push({ id: doc.id, ...doc.data() }));
+      setFornecedores(lista);
       setCarregando(false);
     });
-    const qCat = query(collection(db, "categorias"), orderBy("nome", "asc"));
-    const unsubCat = onSnapshot(qCat, (querySnapshot) => {
-      const catArray: any[] = [];
-      querySnapshot.forEach((doc) => catArray.push({ id: doc.id, ...doc.data() }));
-      setCategoriasDB(catArray);
-    });
-    const qLocais = query(collection(db, "locais"), orderBy("nome", "asc"));
-    const unsubLocais = onSnapshot(qLocais, (querySnapshot) => {
-      const locaisArray: any[] = [];
-      querySnapshot.forEach((doc) => locaisArray.push({ id: doc.id, ...doc.data() }));
-      setLocaisDB(locaisArray);
-    });
-    const qCanais = query(collection(db, "canais"), orderBy("nome", "asc"));
-    const unsubCanais = onSnapshot(qCanais, (querySnapshot) => {
-      const canaisArray: any[] = [];
-      querySnapshot.forEach((doc) => canaisArray.push({ id: doc.id, ...doc.data() }));
-      setCanaisDB(canaisArray);
-    });
-    return () => { unsubProd(); unsubCat(); unsubLocais(); unsubCanais(); };
+    return () => unsubscribe();
   }, []);
 
-  const gerarSKU = (nome: string) => `${(nome.trim().substring(0, 3).toUpperCase() || "PRO")}-${Math.floor(1000 + Math.random() * 9000)}`;
-  const gerarIDUnidade = () => Math.random().toString(36).substring(2, 9).toUpperCase();
   const limparFormulario = () => {
-    setModo("CRIAR"); setItemAtivo(null); setNome(""); setCategoria("");
-    setSubcategoria(""); setPrecoCompra(""); setLocalCompra(""); setEstoque("");
-    setFormaPagamento("PIX"); setParcelas(1); setDataCompra(new Date().toISOString().split("T")[0]);
-  };
-
-  const lancarFinanceiroAutomativo = async (custoTotal: number, nomeProd: string, produtoId: string) => {
-    const batch = writeBatch(db);
-    const grupoId = formaPagamento === "CARTAO" && parcelas > 1 ? `grupo_est_${Date.now()}` : null;
-    const valorParcela = formaPagamento === "CARTAO" ? custoTotal / parcelas : custoTotal;
-    const qtdLancamentos = formaPagamento === "CARTAO" ? parcelas : 1;
-    let [anoBase, mesBase, diaBase] = dataCompra.split('-').map(Number);
-
-    if (formaPagamento === "CARTAO" && diaBase > 25) {
-      mesBase += 1;
-      if (mesBase > 12) { mesBase -= 12; anoBase += 1; }
-    }
-
-    for (let i = 0; i < qtdLancamentos; i++) {
-      let mesAdd = mesBase + i;
-      let anoAdd = anoBase;
-      while (mesAdd > 12) { mesAdd -= 12; anoAdd += 1; }
-      let diaFinal = diaBase;
-      if (mesAdd === 2 && diaFinal > 28) diaFinal = 28;
-      if ([4, 6, 9, 11].includes(mesAdd) && diaFinal > 30) diaFinal = 30;
-
-      const strData = `${anoAdd}-${String(mesAdd).padStart(2, '0')}-${String(diaFinal).padStart(2, '0')}`;
-      const strMesAno = `${anoAdd}-${String(mesAdd).padStart(2, '0')}`;
-      const desc = qtdLancamentos > 1 ? `Estoque: ${nomeProd} (${i + 1}/${parcelas})` : `Estoque: ${nomeProd}`;
-      
-      const novaTransacaoRef = doc(collection(db, "transacoes"));
-      batch.set(novaTransacaoRef, {
-        tipo: "DESPESA", descricao: desc, valor: valorParcela,
-        categoriaDespesa: "ESSENCIAL", formaPagamento,
-        data: strData, mesAno: strMesAno, pago: formaPagamento === "PIX",
-        grupoId, produtoId, criadoEm: new Date()
-      });
-    }
-    await batch.commit();
+    setEditandoId(null);
+    setNome(""); setPlataforma(""); setLinkLoja("");
+    setContatoNome(""); setWhatsapp(""); setWechat(""); setEmail("");
+    setPaisOrigem(""); setFusoHorario(""); setTempoProcessamento("");
+    setNicho(""); setSkusInteresse(""); setAnotacoesPreco("");
+    setLtv(""); setMetodosPagamento(""); setObservacoes("");
   };
 
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!precoCompra || !estoque) return;
-    const qtd = parseInt(estoque, 10);
-    const custoTotal = parseFloat(precoCompra) * qtd;
+
+    // Blindagem: Garante que nada vai pro Firebase como "undefined"
+    const dadosFornecedor = {
+      nome: nome || "", 
+      plataforma: plataforma || "", 
+      linkLoja: linkLoja || "",
+      contatoNome: contatoNome || "", 
+      whatsapp: whatsapp || "", 
+      wechat: wechat || "", 
+      email: email || "",
+      paisOrigem: paisOrigem || "", 
+      fusoHorario: fusoHorario || "", 
+      tempoProcessamento: tempoProcessamento || "",
+      nicho: nicho || "", 
+      skusInteresse: skusInteresse || "", 
+      anotacoesPreco: anotacoesPreco || "",
+      ltv: ltv ? parseFloat(ltv) : 0, // Se estiver vazio, salva zero automaticamente e evita erro (NaN)
+      metodosPagamento: metodosPagamento || "", 
+      observacoes: observacoes || "",
+    };
 
     try {
-      if (modo === "CRIAR") {
-        if (!nome) return;
-        const novasUnidades = Array.from({ length: qtd }, () => ({
-          id: gerarIDUnidade(), precoCompra: parseFloat(precoCompra), precoVenda: 0, valorRecebido: 0,
-          localCompra: localCompra || "Não informado", status: "aguardando recebimento", locaisAnunciados: [], observacao: ""
-        }));
-        
-        const docRef = await addDoc(collection(db, "produtos"), {
-          nome, categoria: categoria || "Sem Categoria", subcategoria: subcategoria || "Sem Subcategoria",
-          sku: gerarSKU(nome), unidades: novasUnidades, criadoEm: new Date()
-        });
-        await lancarFinanceiroAutomativo(custoTotal, nome, docRef.id);
-      } 
-      else if (modo === "EDITAR" && itemAtivo) {
-        await updateDoc(doc(db, "produtos", itemAtivo.id), {
-          nome, categoria: categoria || "Sem Categoria", subcategoria: subcategoria || "Sem Subcategoria",
-        });
-      } 
-      else if (modo === "REPOR" && itemAtivo) {
-        const novasUnidades = Array.from({ length: qtd }, () => ({
-          id: gerarIDUnidade(), precoCompra: parseFloat(precoCompra), precoVenda: 0, valorRecebido: 0,
-          localCompra: localCompra || "Não informado", status: "aguardando recebimento", locaisAnunciados: [], observacao: ""
-        }));
-        const unidadesExistentes = itemAtivo.unidades || [];
-        await updateDoc(doc(db, "produtos", itemAtivo.id), { unidades: [...unidadesExistentes, ...novasUnidades] });
-        await lancarFinanceiroAutomativo(custoTotal, itemAtivo.nome, itemAtivo.id);
+      if (editandoId) {
+        await updateDoc(doc(db, "fornecedores", editandoId), dadosFornecedor);
+      } else {
+        await addDoc(collection(db, "fornecedores"), { ...dadosFornecedor, criadoEm: new Date() });
       }
       limparFormulario();
-    } catch (error) { console.error(error); alert("Erro ao processar."); }
-  };
-
-  const atualizarUnidade = async (produtoId: string, unidadeId: string, campo: string, valor: any) => {
-    const produto = itens.find(i => i.id === produtoId);
-    if (!produto) return;
-    const unidadesAtualizadas = produto.unidades.map((u: any) => u.id === unidadeId ? { ...u, [campo]: valor } : u);
-    try { await updateDoc(doc(db, "produtos", produtoId), { unidades: unidadesAtualizadas }); } catch (error) { console.error(error); }
-  };
-
-  const toggleCanalUnidade = async (produtoId: string, unidadeId: string, nomeCanal: string, canaisAtuais: string[], isUnico: boolean) => {
-    const produto = itens.find(i => i.id === produtoId);
-    if (!produto) return;
-
-    let novaListaCanais: string[] = [];
-    if (isUnico) {
-      novaListaCanais = canaisAtuais.includes(nomeCanal) ? [] : [nomeCanal];
-    } else {
-      novaListaCanais = canaisAtuais.includes(nomeCanal) ? canaisAtuais.filter(c => c !== nomeCanal) : [...canaisAtuais, nomeCanal];
-    }
-
-    const unidadesAtualizadas = produto.unidades.map((u: any) => u.id === unidadeId ? { ...u, locaisAnunciados: novaListaCanais } : u);
-    try { await updateDoc(doc(db, "produtos", produtoId), { unidades: unidadesAtualizadas }); } catch (error) { console.error(error); }
-  };
-
-  const excluirUnidade = async (produtoId: string, unidadeId: string, nomeProduto: string, custoUnidade: number) => {
-    const msg = `CONFERÊNCIA DE EXCLUSÃO DE UNIDADE:\n\nCusto desta unidade: R$ ${custoUnidade.toFixed(2)}\n\nAo excluir, este valor será subtraído da próxima parcela atrelada a este produto no Fluxo de Caixa para manter seu saldo correto.\n\nConfirma a exclusão?`;
-    if(!window.confirm(msg)) return;
-
-    const produto = itens.find(i => i.id === produtoId);
-    const unidadesRestantes = produto.unidades.filter((u: any) => u.id !== unidadeId);
-
-    const qDocs = await getDocs(collection(db, "transacoes"));
-    const trsRelacionadas: any[] = qDocs.docs.filter(d => {
-      const dataDoc = d.data() as any;
-      return dataDoc.produtoId === produtoId || (!dataDoc.produtoId && dataDoc.descricao.includes(nomeProduto));
-    }).map(d => ({id: d.id, ...(d.data() as any)}));
-    
-    trsRelacionadas.sort((a,b) => b.data.localeCompare(a.data)); 
-
-    const batch = writeBatch(db);
-    batch.update(doc(db, "produtos", produtoId), { unidades: unidadesRestantes });
-
-    let abatimento = custoUnidade;
-    for (const t of trsRelacionadas) {
-      if (abatimento <= 0) break;
-      if (t.valor <= abatimento) {
-        batch.delete(doc(db, "transacoes", t.id));
-        abatimento -= t.valor;
-      } else {
-        batch.update(doc(db, "transacoes", t.id), { valor: t.valor - abatimento });
-        abatimento = 0;
-      }
-    }
-    await batch.commit();
-  };
-
-  const excluirProdutoInteiro = async (id: string, nomeProduto: string) => {
-    const qDocs = await getDocs(collection(db, "transacoes"));
-    const trsRelacionadas = qDocs.docs.filter(d => {
-      const dataDoc = d.data() as any;
-      return dataDoc.produtoId === id || (!dataDoc.produtoId && dataDoc.descricao.includes(nomeProduto));
-    });
-    const totalAEstornar = trsRelacionadas.reduce((acc, curr) => acc + (curr.data() as any).valor, 0);
-
-    const msg = `CONFERÊNCIA DE EXCLUSÃO DE LOTE (PRODUTO):\n\nProduto: ${nomeProduto}\nLançamentos atrelados no Fluxo de Caixa: ${trsRelacionadas.length}\nValor total que será apagado do financeiro: R$ ${totalAEstornar.toFixed(2)}\n\nDeseja confirmar a exclusão do produto e recalcular todo o caixa?`;
-
-    if (window.confirm(msg)) {
-      const batch = writeBatch(db);
-      batch.delete(doc(db, "produtos", id));
-      trsRelacionadas.forEach(t => batch.delete(doc(db, "transacoes", t.id)));
-      await batch.commit();
-      if (itemAtivo?.id === id) limparFormulario();
+    } catch (error) {
+      console.error("Detalhes do Erro no Firebase: ", error); 
+      alert("Erro ao salvar. Verifique se a sua conexão está ativa.");
     }
   };
 
-  const iniciarEdicao = (item: any) => { setModo("EDITAR"); setItemAtivo(item); setNome(item.nome); setCategoria(item.categoria || ""); setSubcategoria(item.subcategoria || ""); setPrecoCompra(""); setEstoque(""); setLocalCompra(""); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const iniciarReposicao = (item: any) => { setModo("REPOR"); setItemAtivo(item); setNome(item.nome); setCategoria(item.categoria || ""); setSubcategoria(item.subcategoria || ""); setPrecoCompra(""); setEstoque(""); setLocalCompra(""); setFormaPagamento("PIX"); setParcelas(1); setDataCompra(new Date().toISOString().split("T")[0]); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const iniciarEdicao = (forn: any) => {
+    setEditandoId(forn.id);
+    setNome(forn.nome || ""); setPlataforma(forn.plataforma || ""); setLinkLoja(forn.linkLoja || "");
+    setContatoNome(forn.contatoNome || ""); setWhatsapp(forn.whatsapp || ""); setWechat(forn.wechat || ""); setEmail(forn.email || "");
+    setPaisOrigem(forn.paisOrigem || ""); setFusoHorario(forn.fusoHorario || ""); setTempoProcessamento(forn.tempoProcessamento || "");
+    setNicho(forn.nicho || ""); setSkusInteresse(forn.skusInteresse || ""); setAnotacoesPreco(forn.anotacoesPreco || "");
+    setLtv(forn.ltv?.toString() || ""); setMetodosPagamento(forn.metodosPagamento || ""); setObservacoes(forn.observacoes || "");
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const excluirFornecedor = async (id: string) => {
+    if (window.confirm("Tem certeza que deseja apagar a ficha deste fornecedor permanentemente?")) {
+      await deleteDoc(doc(db, "fornecedores", id));
+      if (editandoId === id) limparFormulario();
+    }
+  };
+
   const toggleExpand = (id: string) => setExpandido(prev => ({ ...prev, [id]: !prev[id] }));
 
-  const categoriasTabelaUnicas = Array.from(new Set(itens.map(item => item.categoria || "Sem Categoria").filter(Boolean)));
-  const subcategoriasDisponiveisForm = categoriasDB.find(cat => cat.nome === categoria)?.subcategorias || [];
+  // --- CARDS DO DASHBOARD ---
+  const totalFornecedores = fornecedores.length;
+  const ltvGlobal = fornecedores.reduce((acc, curr) => acc + (Number(curr.ltv) || 0), 0);
+  
+  const plataformasContagem = fornecedores.reduce((acc, curr) => {
+    const p = curr.plataforma || "Outros";
+    acc[p] = (acc[p] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  const topPlataformas = Object.entries(plataformasContagem).sort((a, b) => b[1] - a[1]).slice(0, 2);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8 text-gray-800">
+    <div className="min-h-screen bg-gray-100 p-4 md:p-8 text-gray-800">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold">Painel de Vendas</h1>
-          <div className="flex gap-3 mt-4 md:mt-0">
-            <Link href="/financeiro" className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition font-medium text-sm">💰 Fluxo de Caixa</Link>
-            <Link href="/categorias" className="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 transition font-medium text-sm">⚙️ Configurações / Canais</Link>
+        
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Gestão de Fornecedores</h1>
+            <p className="text-sm text-gray-500 mt-1">Diretório Central (SRM)</p>
+          </div>
+          <div className="flex gap-3">
+            <Link href="/financeiro" className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition font-medium text-sm flex items-center gap-2 shadow-sm">
+              💰 Fluxo de Caixa
+            </Link>
           </div>
         </div>
 
-        {/* FORMULÁRIO */}
-        <div className={`p-6 rounded-lg shadow-sm border mb-8 ${modo === "EDITAR" ? 'bg-amber-50' : modo === "REPOR" ? 'bg-emerald-50' : 'bg-white'}`}>
-          <h2 className="text-xl font-semibold mb-4 text-gray-800 flex justify-between">
-            {modo === "CRIAR" && "Cadastrar Novo Produto"}
-            {modo === "EDITAR" && `Editando Cadastro: ${itemAtivo?.sku}`}
-            {modo === "REPOR" && `Entrada de Estoque: ${itemAtivo?.sku}`}
-            {modo !== "CRIAR" && <button type="button" onClick={limparFormulario} className="text-sm font-normal text-gray-500 hover:underline">Voltar para Cadastro</button>}
-          </h2>
-
-          <form onSubmit={handleSalvar} className="grid grid-cols-1 md:grid-cols-6 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1">Produto</label>
-              <input type="text" value={nome} onChange={(e) => setNome(e.target.value)} disabled={modo === "REPOR"} className="w-full p-2 border rounded bg-white" />
+        {/* CARDS DE RESUMO */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-blue-600">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Parceiros</h3>
+            <p className="text-2xl font-bold text-blue-900 mt-1">{totalFornecedores}</p>
+          </div>
+          <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-emerald-500">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Volume Gasto (LTV Total)</h3>
+            <p className="text-2xl font-bold text-emerald-700 mt-1">R$ {ltvGlobal.toFixed(2)}</p>
+          </div>
+          <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-purple-500">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Plataformas Principais</h3>
+            <div className="mt-1 flex gap-2">
+              {topPlataformas.length > 0 ? topPlataformas.map(p => (
+                <span key={p[0]} className="bg-purple-100 text-purple-800 text-xs font-bold px-2 py-1 rounded">{p[0]}: {p[1]}</span>
+              )) : <span className="text-sm text-gray-400">Nenhum dado</span>}
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1">Categoria</label>
-              <select value={categoria} onChange={(e) => {setCategoria(e.target.value); setSubcategoria("");}} disabled={modo === "REPOR"} className="w-full p-2 border rounded bg-white">
-                <option value="">-- Selecione --</option>
-                {categoriasDB.map(cat => <option key={cat.id} value={cat.nome}>{cat.nome}</option>)}
-              </select>
+          </div>
+        </div>
+
+        {/* FORMULÁRIO COMPLETO */}
+        <div className={`p-6 rounded-lg shadow-sm border mb-8 ${editandoId ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'}`}>
+          <div className="flex justify-between items-center mb-6 border-b pb-3">
+            <h2 className="text-xl font-bold text-gray-800">
+              {editandoId ? "✏️ Editando Ficha Cadastral" : "➕ Novo Fornecedor"}
+            </h2>
+            {editandoId && <button type="button" onClick={limparFormulario} className="text-sm text-gray-500 hover:text-gray-800 underline">Cancelar Edição</button>}
+          </div>
+
+          <form onSubmit={handleSalvar} className="space-y-6">
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-3"><h3 className="text-sm font-bold text-blue-700 uppercase tracking-wide">1. Dados Gerais</h3></div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Nome do Fornecedor / Empresa</label>
+                <input type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: Tuya Official Store" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Plataforma Origem</label>
+                <select value={plataforma} onChange={e => setPlataforma(e.target.value)} className="w-full p-2 border rounded bg-white text-sm">
+                  <option value="">Selecione...</option><option value="AliExpress">AliExpress</option><option value="Shopee">Shopee</option><option value="Alibaba">Alibaba</option><option value="Direto">Direto (Independente)</option><option value="Outro">Outro</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Link da Loja / Site</label>
+                <input type="url" value={linkLoja} onChange={e => setLinkLoja(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="https://" />
+              </div>
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1">Subcategoria</label>
-              <select value={subcategoria} onChange={(e) => setSubcategoria(e.target.value)} disabled={modo === "REPOR" || !categoria} className="w-full p-2 border rounded bg-white">
-                <option value="">-- Selecione --</option>
-                {subcategoriasDisponiveisForm.map((sub: string, i: number) => <option key={i} value={sub}>{sub}</option>)}
-              </select>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 border-t pt-4">
+              <div className="md:col-span-4"><h3 className="text-sm font-bold text-blue-700 uppercase tracking-wide">2. Contatos Diretos</h3></div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Atendente / Vendedor</label>
+                <input type="text" value={contatoNome} onChange={e => setContatoNome(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: Mr. Chen, Alice" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">WhatsApp</label>
+                <input type="text" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="+86 123 4567" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">WeChat ID</label>
+                <input type="text" value={wechat} onChange={e => setWechat(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="ID do WeChat" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">E-mail</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="contato@empresa.com" />
+              </div>
             </div>
 
-            {modo !== "EDITAR" && (
-              <>
-                <div className="md:col-span-6 border-t pt-4 mt-2">
-                  <h3 className="text-sm font-bold text-gray-600 mb-3">Dados da Compra (Integração Financeira Automática)</h3>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">Local (Fornecedor)</label>
-                  <select value={localCompra} onChange={(e) => setLocalCompra(e.target.value)} className="w-full p-2 border rounded bg-white">
-                    <option value="">-- Selecione --</option>
-                    {locaisDB.map(loc => <option key={loc.id} value={loc.nome}>{loc.nome}</option>)}
-                  </select>
-                </div>
-                <div className="md:col-span-1">
-                  <label className="block text-sm font-medium mb-1">Data da Compra</label>
-                  <input type="date" value={dataCompra} onChange={(e) => setDataCompra(e.target.value)} className="w-full p-2 border rounded bg-white" />
-                </div>
-                <div className="md:col-span-1">
-                  <label className="block text-sm font-medium mb-1">Qtd</label>
-                  <input type="number" step="1" value={estoque} onChange={(e) => setEstoque(e.target.value)} placeholder="0" className="w-full p-2 border rounded bg-white" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">Custo Unitário (R$)</label>
-                  <input type="number" step="0.01" value={precoCompra} onChange={(e) => setPrecoCompra(e.target.value)} placeholder="0.00" className="w-full p-2 border rounded bg-white" />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-1">Forma de Pagamento</label>
-                  <select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value as any)} className="w-full p-2 border rounded bg-white font-semibold text-blue-800">
-                    <option value="PIX">Pix / Boleto à vista</option>
-                    <option value="CARTAO">Cartão de Crédito</option>
-                  </select>
-                </div>
-                {formaPagamento === "CARTAO" && (
-                  <div className="md:col-span-1">
-                    <label className="block text-sm font-medium mb-1">Parcelas</label>
-                    <input type="number" min="1" max="24" value={parcelas} onChange={(e) => setParcelas(parseInt(e.target.value)||1)} className="w-full p-2 border rounded bg-white" />
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4 border-t pt-4">
+              <div className="md:col-span-3 space-y-4">
+                <h3 className="text-sm font-bold text-blue-700 uppercase tracking-wide">3. Logística</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">País de Origem</label>
+                    <input type="text" value={paisOrigem} onChange={e => setPaisOrigem(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: China, Brasil" />
                   </div>
-                )}
-                
-                {(precoCompra && estoque) && (
-                  <div className={`md:col-span-3 flex items-center p-2 rounded ${formaPagamento === 'CARTAO' && parcelas > 1 ? 'bg-amber-50 text-amber-800' : 'bg-green-50 text-green-800'}`}>
-                    <span className="text-sm">
-                      Total: <b>R$ {(parseFloat(precoCompra) * parseInt(estoque)).toFixed(2)}</b> será lançado no Fluxo de Caixa 
-                      {formaPagamento === 'CARTAO' && parcelas > 1 ? ` em ${parcelas}x de R$ ${((parseFloat(precoCompra) * parseInt(estoque)) / parcelas).toFixed(2)}` : ' à vista'}.
-                    </span>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Fuso Horário</label>
+                    <input type="text" value={fusoHorario} onChange={e => setFusoHorario(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: UTC+8 (11h a mais)" />
                   </div>
-                )}
-              </>
-            )}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Tempo de Processamento (Dias)</label>
+                  <input type="text" value={tempoProcessamento} onChange={e => setTempoProcessamento(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: Envia em 48h" />
+                </div>
+              </div>
 
-            <div className="md:col-span-6 mt-4">
-              <button type="submit" className={`text-white px-6 py-2 rounded font-medium ${modo === "EDITAR" ? 'bg-amber-500' : modo === "REPOR" ? 'bg-emerald-600' : 'bg-blue-600'}`}>
-                {modo === "CRIAR" && "Cadastrar Produto e Lançar no Financeiro"}
-                {modo === "EDITAR" && "Salvar Alterações"}
-                {modo === "REPOR" && "Adicionar Lote e Lançar no Financeiro"}
+              <div className="md:col-span-3 space-y-4">
+                <h3 className="text-sm font-bold text-blue-700 uppercase tracking-wide">4. Catálogo & Comercial</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Nicho Principal</label>
+                    <input type="text" value={nicho} onChange={e => setNicho(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: Automação" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Métodos de Pagamento</label>
+                    <input type="text" value={metodosPagamento} onChange={e => setMetodosPagamento(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: AliPay, Pix, Remessa" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Anotações de Preço / Descontos</label>
+                  <input type="text" value={anotacoesPreco} onChange={e => setAnotacoesPreco(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: 10% off acima de 50 un." />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
+              <div className="md:col-span-2"><h3 className="text-sm font-bold text-blue-700 uppercase tracking-wide">5. Histórico e Observações</h3></div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Volume Já Gasto (LTV) - R$</label>
+                <input type="number" step="0.01" value={ltv} onChange={e => setLtv(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Total que já comprou deles" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">SKUs Chave / Produtos Frequentes</label>
+                <input type="text" value={skusInteresse} onChange={e => setSkusInteresse(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" placeholder="Ex: Interruptores, Fitas LED" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold mb-1">Observações e Alertas (Cupons, problemas anteriores)</label>
+                <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} rows={3} className="w-full p-2 border rounded bg-white text-sm" placeholder="Anotações livres sobre este fornecedor..." />
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button type="submit" className={`text-white px-8 py-3 rounded font-bold w-full md:w-auto shadow-md transition ${editandoId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                {editandoId ? "Salvar Ficha Editada" : "Salvar Novo Fornecedor"}
               </button>
             </div>
           </form>
         </div>
 
-        {/* TABELA AGRUPADA */}
+        {/* TABELA DE DIRETÓRIO */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[900px]">
             <thead className="bg-gray-100 border-b-2 border-gray-300">
               <tr>
-                <th className="p-4 font-semibold text-sm w-1/3">Produto / SKU</th>
-                <th className="p-4 font-semibold text-sm text-center">Ticket Médio (Compra)</th>
-                <th className="p-4 font-semibold text-sm text-center">Ticket Médio (Venda)</th>
-                <th className="p-4 font-semibold text-sm text-center">Estoque Ativo</th>
-                <th className="p-4 font-semibold text-sm text-center">ROI Médio Real</th>
-                <th className="p-4 font-semibold text-sm text-right">Ações Principais</th>
+                <th className="p-4 font-semibold text-sm w-1/3">Fornecedor</th>
+                <th className="p-4 font-semibold text-sm">Nicho / SKUs</th>
+                <th className="p-4 font-semibold text-sm text-center">Volume (LTV)</th>
+                <th className="p-4 font-semibold text-sm text-center">Contato Rápido</th>
+                <th className="p-4 font-semibold text-sm text-right">Ações</th>
               </tr>
             </thead>
-            {carregando ? <tbody><tr><td colSpan={6} className="p-4 text-center text-gray-500">Carregando...</td></tr></tbody> : itens.length === 0 ? <tbody><tr><td colSpan={6} className="p-4 text-center text-gray-500">Nenhum produto cadastrado.</td></tr></tbody> : (
-              categoriasTabelaUnicas.map(catNome => {
-                const itensDestaCategoria = itens.filter(i => (i.categoria || "Sem Categoria") === catNome);
-                return (
-                  <tbody key={catNome as string}>
-                    <tr className="bg-gray-800 text-white"><td colSpan={6} className="p-2 px-4 font-bold text-sm tracking-wider uppercase">{catNome as string}</td></tr>
-                    {itensDestaCategoria.map(item => {
-                      const unidades = item.unidades || [];
-                      const unidadesAtivas = unidades.filter((u: any) => u.status !== 'finalizado');
-                      const qtdEstoque = unidadesAtivas.length;
+            
+            {carregando ? <tbody><tr><td colSpan={5} className="p-4 text-center text-gray-500">Carregando diretório...</td></tr></tbody> 
+            : fornecedores.length === 0 ? <tbody><tr><td colSpan={5} className="p-4 text-center text-gray-500">Nenhum fornecedor cadastrado.</td></tr></tbody> 
+            : (
+              <tbody>
+                {fornecedores.map(forn => {
+                  const isExpanded = expandido[forn.id];
+                  return (
+                    <Fragment key={forn.id}>
+                      <tr className={`border-b hover:bg-blue-50 cursor-pointer transition ${isExpanded ? 'bg-blue-50' : ''}`} onClick={() => toggleExpand(forn.id)}>
+                        <td className="p-4">
+                          <div className="font-bold text-gray-900">{forn.nome || "Fornecedor Sem Nome"}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded uppercase font-bold">{forn.plataforma || 'N/A'}</span>
+                            {forn.paisOrigem && <span className="text-xs text-gray-500">🌍 {forn.paisOrigem}</span>}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="text-sm font-medium text-gray-800">{forn.nicho || '-'}</div>
+                          <div className="text-[10px] text-gray-500 mt-0.5 max-w-[200px] truncate">{forn.skusInteresse || '-'}</div>
+                        </td>
+                        <td className="p-4 text-center font-bold text-emerald-700">
+                          {forn.ltv > 0 ? `R$ ${Number(forn.ltv).toFixed(2)}` : '-'}
+                        </td>
+                        <td className="p-4 text-center space-x-2">
+                          {forn.whatsapp && <a href={`https://wa.me/${forn.whatsapp.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-green-600 font-bold text-xl" title="Chamar no WhatsApp" onClick={e => e.stopPropagation()}>💬</a>}
+                          {forn.wechat && <span className="text-green-500 font-bold text-xl" title={`WeChat: ${forn.wechat}`}>🇨🇳</span>}
+                          {forn.linkLoja && <a href={forn.linkLoja} target="_blank" rel="noreferrer" className="text-blue-600 font-bold text-xl" title="Ir para a loja" onClick={e => e.stopPropagation()}>🛒</a>}
+                        </td>
+                        <td className="p-4 text-right space-x-3">
+                          <button onClick={(e) => { e.stopPropagation(); iniciarEdicao(forn); }} className="text-blue-600 hover:text-blue-800 text-sm font-bold">Editar</button>
+                          <button onClick={(e) => { e.stopPropagation(); excluirFornecedor(forn.id); }} className="text-red-500 hover:text-red-700 text-sm font-bold">Excluir</button>
+                        </td>
+                      </tr>
                       
-                      const totalCompra = unidades.reduce((acc: number, u: any) => acc + (Number(u.precoCompra) || 0), 0);
-                      const ticketCompra = unidades.length > 0 ? totalCompra / unidades.length : 0;
-                      
-                      const unidadesComVenda = unidades.filter((u: any) => (Number(u.precoVenda) || 0) > 0);
-                      const totalVenda = unidadesComVenda.reduce((acc: number, u: any) => acc + (Number(u.precoVenda) || 0), 0);
-                      const ticketVenda = unidadesComVenda.length > 0 ? totalVenda / unidadesComVenda.length : 0;
-                      
-                      // NOVO ROI Médio (Agora permite mostrar negativos caso o lucro seja negativo)
-                      let somaROI = 0;
-                      let qtdROI = 0;
-                      unidades.forEach((u: any) => {
-                        const custo = Number(u.precoCompra) || 0;
-                        const receita = (u.status === 'finalizado' && (Number(u.valorRecebido) > 0)) ? Number(u.valorRecebido) : Number(u.precoVenda);
-                        if (custo > 0 && receita > 0) {
-                          somaROI += ((receita - custo) / custo) * 100;
-                          qtdROI += 1;
-                        }
-                      });
-                      
-                      const hasRoi = qtdROI > 0;
-                      const roiReal = hasRoi ? somaROI / qtdROI : 0;
-                      const isExpanded = expandido[item.id];
+                      {/* FICHA EXPANDIDA */}
+                      {isExpanded && (
+                        <tr className="bg-white border-b shadow-inner">
+                          <td colSpan={5} className="p-0">
+                            <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm border-l-4 border-l-blue-400">
+                              
+                              <div className="space-y-2">
+                                <h4 className="font-bold text-gray-800 border-b pb-1">👤 Contatos</h4>
+                                <p><span className="text-gray-500">Vendedor:</span> {forn.contatoNome || '-'}</p>
+                                <p><span className="text-gray-500">Email:</span> {forn.email || '-'}</p>
+                                <p><span className="text-gray-500">WeChat ID:</span> {forn.wechat || '-'}</p>
+                              </div>
 
-                      return (
-                        <Fragment key={item.id}>
-                          <tr className={`border-b hover:bg-blue-50 cursor-pointer transition ${isExpanded ? 'bg-blue-50' : ''}`} onClick={() => toggleExpand(item.id)}>
-                            <td className="p-4"><div className="font-bold text-gray-800">{item.nome}</div><div className="text-xs text-blue-600 font-mono mt-1">{item.sku}</div></td>
-                            <td className="p-4 text-center text-red-600 font-medium">R$ {ticketCompra.toFixed(2)}</td>
-                            <td className="p-4 text-center text-blue-600 font-medium">{ticketVenda > 0 ? `R$ ${ticketVenda.toFixed(2)}` : '-'}</td>
-                            <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-sm font-bold ${qtdEstoque > 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>{qtdEstoque} un.</span></td>
-                            
-                            {/* CÉLULA DO ROI CORRIGIDA PARA MOSTRAR NEGATIVOS EM VERMELHO */}
-                            <td className={`p-4 text-center font-bold ${hasRoi ? (roiReal >= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-400'}`}>
-                              {hasRoi ? `${roiReal.toFixed(1)}%` : '-'}
-                            </td>
+                              <div className="space-y-2">
+                                <h4 className="font-bold text-gray-800 border-b pb-1">📦 Logística & Financeiro</h4>
+                                <p><span className="text-gray-500">Processamento:</span> {forn.tempoProcessamento || '-'}</p>
+                                <p><span className="text-gray-500">Fuso Horário:</span> {forn.fusoHorario || '-'}</p>
+                                <p><span className="text-gray-500">Pagtos Aceitos:</span> {forn.metodosPagamento || '-'}</p>
+                              </div>
 
-                            <td className="p-4 text-right space-x-2">
-                              <button onClick={(e) => { e.stopPropagation(); iniciarReposicao(item); }} className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-xs font-semibold hover:bg-emerald-200">+ Repor</button>
-                              <button onClick={(e) => { e.stopPropagation(); iniciarEdicao(item); }} className="bg-gray-200 text-gray-800 px-2 py-1 rounded text-xs font-semibold hover:bg-gray-300">Editar</button>
-                              <button onClick={(e) => { e.stopPropagation(); excluirProdutoInteiro(item.id, item.nome); }} className="text-red-500 hover:text-red-700 text-xs font-bold px-1">X</button>
-                            </td>
-                          </tr>
-                          
-                          {isExpanded && unidades.length > 0 && (
-                            <tr className="bg-gray-50 border-b">
-                              <td colSpan={6} className="p-0">
-                                <div className="p-4 shadow-inner overflow-x-auto">
-                                  <table className="w-full text-sm text-left bg-white border border-gray-200 rounded min-w-[1200px]">
-                                    <thead className="bg-gray-100">
-                                      <tr>
-                                        <th className="p-2 border-b">ID</th>
-                                        <th className="p-2 border-b">Fornecedor</th>
-                                        <th className="p-2 border-b">Custo</th>
-                                        <th className="p-2 border-b text-blue-700">Venda (R$)</th>
-                                        <th className="p-2 border-b text-green-700">Recebido Liq. (R$)</th>
-                                        <th className="p-2 border-b text-red-700">Taxa</th>
-                                        <th className="p-2 border-b w-36">Status</th>
-                                        <th className="p-2 border-b w-48">Canais / Venda</th>
-                                        <th className="p-2 border-b">Observação</th>
-                                        <th className="p-2 border-b text-center">Ações</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {unidades.map((u: any) => {
-                                        const taxaAuto = (Number(u.precoVenda) > 0 && Number(u.valorRecebido) > 0) 
-                                          ? (Number(u.precoVenda) - Number(u.valorRecebido)) 
-                                          : 0;
-
-                                        return(
-                                          <tr key={u.id} className="hover:bg-gray-50 border-b last:border-0">
-                                            <td className="p-2 font-mono text-gray-500 text-[10px]">{u.id}</td>
-                                            <td className="p-2 text-gray-600 text-xs">{u.localCompra}</td>
-                                            <td className="p-2 text-red-600 font-medium">R$ {Number(u.precoCompra).toFixed(2)}</td>
-                                            <td className="p-2">
-                                              <input type="number" step="0.01" defaultValue={u.precoVenda || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "precoVenda", parseFloat(e.target.value) || 0)} placeholder="0.00" className="w-20 p-1 border rounded text-blue-700 font-medium text-xs" />
-                                            </td>
-                                            <td className="p-2">
-                                              <input type="number" step="0.01" defaultValue={u.valorRecebido || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "valorRecebido", parseFloat(e.target.value) || 0)} placeholder="0.00" className="w-20 p-1 border rounded text-green-700 font-medium text-xs bg-green-50" />
-                                            </td>
-                                            <td className="p-2 text-xs font-bold text-red-500">
-                                              {taxaAuto > 0 ? `R$ ${taxaAuto.toFixed(2)}` : '-'}
-                                            </td>
-                                            <td className="p-2">
-                                              <select value={u.status} onChange={(e) => atualizarUnidade(item.id, u.id, "status", e.target.value)} className={`w-full p-1 border rounded text-[10px] font-semibold ${u.status === 'finalizado' ? 'bg-green-100 text-green-800' : u.status === 'enviado' ? 'bg-blue-100 text-blue-800' : u.status === 'para anuncio' ? 'bg-purple-100 text-purple-800' : 'bg-amber-100 text-amber-800'}`}>
-                                                <option value="aguardando recebimento">Aguard. Recebimento</option><option value="para anuncio">Para Anúncio</option><option value="anunciado">Anunciado</option><option value="aguardando entrega">Aguard. Entrega</option><option value="enviado">Enviado</option><option value="finalizado">Finalizado (Vendido)</option>
-                                              </select>
-                                            </td>
-                                            <td className="p-2">
-                                              <div className="text-[9px] text-gray-500 mb-0.5">{u.status === 'finalizado' ? 'Vendido em (Selecione 1):' : 'Anunciado em:'}</div>
-                                              <div className="flex flex-wrap gap-1">
-                                                {canaisDB.length === 0 && <span className="text-[10px] text-gray-400">Sem canais</span>}
-                                                {canaisDB.map(canal => {
-                                                  const locais = u.locaisAnunciados || [];
-                                                  const ativo = locais.includes(canal.nome);
-                                                  const isUnico = u.status === 'finalizado'; 
-                                                  return (
-                                                    <button key={canal.id} onClick={() => toggleCanalUnidade(item.id, u.id, canal.nome, locais, isUnico)} 
-                                                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${ativo ? (isUnico ? 'bg-green-600 text-white border-green-700 font-bold' : 'bg-purple-600 text-white border-purple-700 font-bold') : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} 
-                                                      title={isUnico ? `Marcar vendido por: ${canal.nome}` : `Marcar anúncio em: ${canal.nome}`}>
-                                                      {canal.nome}
-                                                    </button>
-                                                  )
-                                                })}
-                                              </div>
-                                            </td>
-                                            <td className="p-2"><input type="text" defaultValue={u.observacao || ""} onBlur={(e) => atualizarUnidade(item.id, u.id, "observacao", e.target.value)} placeholder="Rastreio..." className="w-full p-1 border rounded text-xs text-gray-700 focus:ring-blue-500" title="Clique fora para salvar" /></td>
-                                            <td className="p-2 text-center"><button onClick={() => excluirUnidade(item.id, u.id, item.nome, u.precoCompra)} className="text-red-400 hover:text-red-700 font-bold">X</button></td>
-                                          </tr>
-                                        )
-                                      })}
-                                    </tbody>
-                                  </table>
+                              <div className="space-y-2">
+                                <h4 className="font-bold text-gray-800 border-b pb-1">📝 Observações & Acordos</h4>
+                                <p><span className="text-gray-500">Descontos:</span> {forn.anotacoesPreco || '-'}</p>
+                                <div className="mt-2 p-2 bg-yellow-50 text-yellow-800 border border-yellow-200 rounded text-xs whitespace-pre-wrap">
+                                  {forn.observacoes || 'Nenhuma observação registrada.'}
                                 </div>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      )
-                    })}
-                  </tbody>
-                )
-              })
+                              </div>
+
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
             )}
           </table>
         </div>
+
       </div>
     </div>
   );
