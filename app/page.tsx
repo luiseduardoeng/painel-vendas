@@ -60,7 +60,6 @@ export default function Fornecedores() {
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Blindagem: Garante que nada vai pro Firebase como "undefined"
     const dadosFornecedor = {
       nome: nome || "", 
       plataforma: plataforma || "", 
@@ -75,7 +74,7 @@ export default function Fornecedores() {
       nicho: nicho || "", 
       skusInteresse: skusInteresse || "", 
       anotacoesPreco: anotacoesPreco || "",
-      ltv: ltv ? parseFloat(ltv) : 0, // Se estiver vazio, salva zero automaticamente e evita erro (NaN)
+      ltv: ltv ? parseFloat(ltv) : 0, 
       metodosPagamento: metodosPagamento || "", 
       observacoes: observacoes || "",
     };
@@ -121,7 +120,9 @@ export default function Fornecedores() {
     acc[p] = (acc[p] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
-  const topPlataformas = Object.entries(plataformasContagem).sort((a, b) => b[1] - a[1]).slice(0, 2);
+  
+  // CORREÇÃO TYPESCRIPT: Adicionado o tipo (a: any, b: any) no sort para a Vercel não travar
+  const topPlataformas = Object.entries(plataformasContagem).sort((a: any, b: any) => b[1] - a[1]).slice(0, 2);
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-8 text-gray-800">
@@ -152,7 +153,8 @@ export default function Fornecedores() {
           <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-purple-500">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Plataformas Principais</h3>
             <div className="mt-1 flex gap-2">
-              {topPlataformas.length > 0 ? topPlataformas.map(p => (
+              {/* CORREÇÃO TYPESCRIPT: Adicionado o tipo (p: any) no map */}
+              {topPlataformas.length > 0 ? topPlataformas.map((p: any) => (
                 <span key={p[0]} className="bg-purple-100 text-purple-800 text-xs font-bold px-2 py-1 rounded">{p[0]}: {p[1]}</span>
               )) : <span className="text-sm text-gray-400">Nenhum dado</span>}
             </div>
